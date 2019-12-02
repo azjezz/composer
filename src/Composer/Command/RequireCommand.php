@@ -38,6 +38,7 @@ class RequireCommand extends InitCommand
     private $json;
     private $file;
     private $composerBackup;
+    private $dryRun;
 
     protected function configure()
     {
@@ -46,6 +47,7 @@ class RequireCommand extends InitCommand
             ->setDescription('Adds required packages to your composer.json and installs them.')
             ->setDefinition(array(
                 new InputArgument('packages', InputArgument::IS_ARRAY | InputArgument::OPTIONAL, 'Optional package name can also include a version constraint, e.g. foo/bar or foo/bar:1.0.0 or foo/bar=1.0.0 or "foo/bar 1.0.0"'),
+                new InputOption('dry-run', null, InputOption::VALUE_NONE, 'Outputs the operations but will not execute anything (implicitly enables --verbose).'),
                 new InputOption('dev', null, InputOption::VALUE_NONE, 'Add requirement to require-dev.'),
                 new InputOption('prefer-source', null, InputOption::VALUE_NONE, 'Forces installation from package sources when possible, including VCS information.'),
                 new InputOption('prefer-dist', null, InputOption::VALUE_NONE, 'Forces installation from package dist even for dev versions.'),
@@ -94,6 +96,7 @@ EOT
         $this->file = Factory::getComposerFile();
         $io = $this->getIO();
 
+        $this->dryRun = $input->getOption('dry-run') === true;
         $this->newlyCreated = !file_exists($this->file);
         if ($this->newlyCreated && !file_put_contents($this->file, "{\n}\n")) {
             $io->writeError('<error>'.$this->file.' could not be created.</error>');
@@ -227,6 +230,7 @@ EOT
         $install = Installer::create($io, $composer);
 
         $install
+            ->setDryRun($this->dryRun)
             ->setVerbose($input->getOption('verbose'))
             ->setPreferSource($input->getOption('prefer-source'))
             ->setPreferDist($input->getOption('prefer-dist'))
@@ -246,7 +250,7 @@ EOT
         ;
 
         $status = $install->run();
-        if ($status !== 0) {
+        if ($status !== 0 || $install->isDryRun()) {
             $this->revertComposerFile(false);
         }
 
@@ -283,10 +287,16 @@ EOT
         $io = $this->getIO();
 
         if ($this->newlyCreated) {
-            $io->writeError("\n".'<error>Installation failed, deleting '.$this->file.'.</error>');
+            if (!$this->dryRun) {
+                $io->writeError("\n".'<error>Installation failed, deleting '.$this->file.'.</error>');
+            }
+
             unlink($this->json->getPath());
         } else {
-            $io->writeError("\n".'<error>Installation failed, reverting '.$this->file.' to its original content.</error>');
+            if (!$this->dryRun) {
+                $io->writeError("\n" . '<error>Installation failed, reverting ' . $this->file . ' to its original content.</error>');
+            }
+
             file_put_contents($this->json->getPath(), $this->composerBackup);
         }
 
